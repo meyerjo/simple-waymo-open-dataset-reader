@@ -14,7 +14,9 @@
 # ==============================================================================
 import argparse
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import cv2
@@ -29,11 +31,24 @@ from simple_waymo_open_dataset_reader import utils
 
 EXPORT_FOLDER = '/home/meyerjo/dataset/waymo_export/'
 
+def convert_to_png(filename):
+    assert(filename.endswith('numpy'))
+    print('{}: Task started'.format(filename))
+    path, ext = os.path.splitext(filename)
+    im = np.load(filename, allow_pickle=True)
+    pil = Image.fromarray(im)
+    pil.save(path + '.png')
+    os.remove(filename)
+    print("{}: Task Executed {}".format(
+        filename, threading.current_thread()))
+
+
 class Exporter(object):
     def __init__(self, export_folder=None):
         if export_folder is None:
             export_folder = EXPORT_FOLDER
         self.export_folder = export_folder
+        self.executor = ThreadPoolExecutor(max_workers=4)
 
     def export(self, camera_calibration, camera, labels, camera_labels, frame_id=0, sequence_id=None):
         assert(os.path.exists(self.export_folder))
@@ -90,11 +105,11 @@ class Exporter(object):
                     'frame_{:05d}.json'.format(frame_id)), 'w') as f:
             json.dump(boxes, f)
 
-        img.dump(os.path.join(EXPORT_FOLDER, 'rgb', sequence_id,
-                              'frame_{:05d}.numpy'.format(frame_id)))
-        # pil_img = Image.fromarray(img)
-        # with open(os.path.join(EXPORT_FOLDER, 'rgb', 'frame_{:05d}.png'.format(frame_id)), 'wb') as f:
-        #     pil_img.save(f)
+        _filename = os.path.join(EXPORT_FOLDER, 'rgb', sequence_id,
+                              'frame_{:05d}.numpy'.format(frame_id))
+        img.dump(_filename)
+
+        self.executor.submit(convert_to_png, _filename)
 
 
 if __name__ == '__main__':
