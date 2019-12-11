@@ -13,16 +13,15 @@
 # limitations under the License.
 # ==============================================================================
 import argparse
-import os
+import sys
 import threading
 import time
+import errno
+import os
+import json
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-import cv2
-import io
-import sys
-
 from PIL import Image
 
 from simple_waymo_open_dataset_reader import WaymoDataFileReader
@@ -30,6 +29,16 @@ from simple_waymo_open_dataset_reader import dataset_pb2
 from simple_waymo_open_dataset_reader import utils
 
 EXPORT_FOLDER = '/home/meyerjo/dataset/waymo_export/'
+
+
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc:  # Python >2.5
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else:
+            raise
 
 def convert_to_png(filename):
     assert(filename.endswith('numpy'))
@@ -89,21 +98,40 @@ class Exporter(object):
             }
         }
 
-        if not os.path.exists(os.path.join(EXPORT_FOLDER, 'rgb')):
-            os.mkdir(os.path.join(EXPORT_FOLDER, 'rgb'))
-        if not os.path.exists(os.path.join(EXPORT_FOLDER, 'label')):
-            os.mkdir(os.path.join(EXPORT_FOLDER, 'label'))
+        velocities = {x[0].name: x[1] for x in camera.velocity.ListFields()}
+        pose_data = {x[0].name: list(x[1]) for x in camera.pose.ListFields()}
+        camera_info = {
+            'id': '{}_{:05d}'.format(sequence_id, frame_id),
+            'name': camera.name,
+            'velocities': velocities,
+            'pose': pose_data,
+            'shutter': camera.shutter,
+            'pose_timestamp': camera.pose_timestamp,
+            'camera_trigger_time': camera.camera_trigger_time,
+            'camera_readout_done_time': camera.camera_readout_done_time,
+            'width': img.shape[1],
+            'height': img.shape[0],
+            'depth': img.shape[2]
+        }
+
         if not os.path.exists(os.path.join(EXPORT_FOLDER, 'rgb', sequence_id)):
-            os.mkdir(os.path.join(EXPORT_FOLDER, 'rgb', sequence_id))
+            mkdir_p(os.path.join(EXPORT_FOLDER, 'rgb', sequence_id))
         if not os.path.exists(os.path.join(EXPORT_FOLDER, 'label', sequence_id)):
-            os.mkdir(os.path.join(EXPORT_FOLDER, 'label', sequence_id))
-        import json
+            mkdir_p(os.path.join(EXPORT_FOLDER, 'label', sequence_id))
+        if not os.path.exists(os.path.join(EXPORT_FOLDER, 'img_info', sequence_id)):
+            mkdir_p(os.path.join(EXPORT_FOLDER, 'img_info', sequence_id))
         with open(
                 os.path.join(
                     EXPORT_FOLDER,
                     'label', sequence_id,
                     'frame_{:05d}.json'.format(frame_id)), 'w') as f:
             json.dump(boxes, f)
+        with open(
+                os.path.join(
+                    EXPORT_FOLDER,
+                    'img_info', sequence_id,
+                    'frame_{:05d}.json'.format(frame_id)), 'w') as f:
+            json.dump(camera_info, f)
 
         _filename = os.path.join(EXPORT_FOLDER, 'rgb', sequence_id,
                               'frame_{:05d}.numpy'.format(frame_id))
