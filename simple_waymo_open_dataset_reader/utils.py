@@ -100,6 +100,26 @@ def compute_2d_bounding_box(img_or_shape,points):
 
     return (x1,y1,x2,y2)
 
+def get_3d_boxes_to_2d(img, vehicle_to_image, label):
+    vertices = get_3d_box_projected_corners(vehicle_to_image, label)
+
+    if vertices is None:
+        # The box is not visible in this image
+        return
+    x1,y1,x2,y2 = compute_2d_bounding_box(img.shape, vertices)
+    return {'box': [x1, y1, x2, y2], 'label': label.type}
+
+def get_2d_boxes(label):
+    box = label.box
+
+    # Extract the 2D coordinates
+    # It seems that "length" is the actual width and "width" is the actual height of the bounding box. Most peculiar.
+    x1 = int(box.center_x - box.length/2)
+    x2 = int(box.center_x + box.length/2)
+    y1 = int(box.center_y - box.width/2)
+    y2 = int(box.center_y + box.width/2)
+    return {'box': [x1, y1, x2, y2], 'label': label.type}
+
 def draw_3d_box(img, vehicle_to_image, label, colour=(255,128,128), draw_2d_bounding_box=False):
     """Draw a 3D bounding from a given 3D label on a given "img". "vehicle_to_image" must be a projection matrix from the vehicle reference frame to the image space.
 
