@@ -140,6 +140,47 @@ class Exporter(object):
         self.executor.submit(convert_to_png, _filename)
 
 
+def export_file(filename):
+    print('[{}] Porting: {}'.format(threading.get_ident(), filename))
+    head, tail = os.path.split(filename)
+    m = re.search('(.*)(_with_camera_labels)?\.tfrecord$', tail)
+    if m is None:
+        exit(1)
+    filename_without_tfrecord = m.group(1)
+
+    _start_time = time.time()
+    # waymo data file reader
+    datafile = WaymoDataFileReader(filename)
+
+    # Generate a table of the offset of all frame records in the file.
+    table = datafile.get_record_table()
+
+    print("There are %d frames in this file." % len(table))
+
+    # Loop through the whole file
+    ## and display 3D labels.
+    frame_id = 0
+    for frame in datafile:
+        camera_name = dataset_pb2.CameraName.FRONT
+        camera_calibration = utils.get(frame.context.camera_calibrations,
+                                       camera_name)
+        camera = utils.get(frame.images, camera_name)
+
+        camera_labels = None
+        if len(frame.camera_labels) != 0:
+            camera_labels = utils.get(frame.camera_labels, camera_name)
+            camera_labels = camera_labels.labels
+
+        exporter.export(
+            camera_calibration, camera,
+            frame.laser_labels, camera_labels,
+            frame_id=frame_id, sequence_id=filename_without_tfrecord
+        )
+        frame_id += 1
+    print('[{}] Processed file in {}'.format(
+        threading.get_ident(), time.time() - _start_time))
+
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
@@ -164,47 +205,31 @@ if __name__ == '__main__':
 
     # get directories
     file_dirs = os.listdir(input_path)
+    # having the training dirs
     full_file_paths = [os.path.join(input_path, f) for f in file_dirs]
-    full_file_paths = [f for f in full_file_paths if os.path.isfile(f)]
+    full_file_paths = [f for f in full_file_paths if os.path.isdir(f)]
+
+    print('Found {} directories in input_path: {}'.format(
+        len(full_file_paths), input_path
+    ))
+    tfrecord_files = []
+    for training_fold in full_file_paths:
+        files_in_training_fold = os.listdir(training_fold)
+        for tfrecord_file in files_in_training_fold:
+            tfrecord_files.append(os.path.join(training_fold, tfrecord_file))
+
+    full_file_paths = [f for f in tfrecord_files if os.path.isfile(f)]
+
+    print('Found {} tfrecord files'.format(len(full_file_paths)))
+
+    full_file_paths = full_file_paths[:8]
+
+    pool_executor = ThreadPoolExecutor(max_workers=8)
 
     for filename in full_file_paths:
         # get the sequence files
-        print('Porting: {}'.format(filename))
-        head, tail = os.path.split(filename)
-        m = re.search('(.*)(_with_camera_labels)?\.tfrecord$', tail)
-        if m is None:
-            continue
-        filename_without_tfrecord = m.group(1)
+        pool_executor.submit(export_file, filename)
 
-        # waymo data file reader
-        datafile = WaymoDataFileReader(filename)
-
-        # Generate a table of the offset of all frame records in the file.
-        table = datafile.get_record_table()
-
-        print("There are %d frames in this file." % len(table))
-
-        # Loop through the whole file
-        ## and display 3D labels.
-        _start_time = time.time()
-        frame_id = 0
-        for frame in datafile:
-            camera_name = dataset_pb2.CameraName.FRONT
-            camera_calibration = utils.get(frame.context.camera_calibrations, camera_name)
-            camera = utils.get(frame.images, camera_name)
-
-            camera_labels = None
-            if len(frame.camera_labels) != 0:
-                camera_labels = utils.get(frame.camera_labels, camera_name)
-                camera_labels = camera_labels.labels
-
-            exporter.export(
-                camera_calibration, camera,
-                frame.laser_labels, camera_labels,
-                frame_id=frame_id, sequence_id=filename_without_tfrecord
-            )
-            frame_id += 1
-        print('Processed file in {}'.format(time.time() - _start_time))
 
 
 
